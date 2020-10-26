@@ -1,0 +1,9 @@
+numpy
+scipy
+pandas
+matplotlib
+h5py
+opencv-python
+pywavelets
+uproot
+pyfftw
