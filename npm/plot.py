@@ -21,14 +21,14 @@ class BasePlot:
         #plt.rcParams['backend'] = 'pdf'
         #self.fig.suptitle(title, fontsize=self.BIGGEST_SIZE)
         self.axes = []
-        # plt.rc('font', size=self.SMALL_SIZE)  # controls default text sizes
-        # plt.rc('axes', titlesize=self.SMALL_SIZE)  # fontsize of the axes title
-        # plt.rc('axes', labelsize=self.MEDIUM_SIZE)  # fontsize of the x and y labels
-        # plt.rc('xtick', labelsize=self.SMALL_SIZE)  # fontsize of the tick labels
-        # plt.rc('ytick', labelsize=self.SMALL_SIZE)  # fontsize of the tick labels
-        # plt.rc('legend', fontsize=self.SMALL_SIZE)  # legend fontsize
-        # plt.rc('figure', titlesize=self.BIGGER_SIZE)  # fontsize of the figure title
-        plt.style.use('science_soutenance')
+        plt.rc('font', size=self.SMALL_SIZE)  # controls default text sizes
+        plt.rc('axes', titlesize=self.SMALL_SIZE)  # fontsize of the axes title
+        plt.rc('axes', labelsize=self.MEDIUM_SIZE)  # fontsize of the x and y labels
+        plt.rc('xtick', labelsize=self.SMALL_SIZE)  # fontsize of the tick labels
+        plt.rc('ytick', labelsize=self.SMALL_SIZE)  # fontsize of the tick labels
+        plt.rc('legend', fontsize=self.SMALL_SIZE)  # legend fontsize
+        plt.rc('figure', titlesize=self.BIGGER_SIZE)  # fontsize of the figure title
+        plt.style.use('science')
         #plt.tight_layout()
 
     def draw(self):
@@ -47,7 +47,7 @@ class BasePlot:
         plt.savefig(filename, bbox_inches='tight')
 
     def axis_time(self, time):
-        date_fmt = '%H:%M:%S'
+        date_fmt = '%M:%S'
         date_formatter = mdate.DateFormatter(
             date_fmt, tz=timezone('Europe/Paris'))
         for axe in self.axes:

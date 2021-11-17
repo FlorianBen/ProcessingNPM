@@ -21,5 +21,5 @@ setup(name=name,
               'project': ('setup.py', name),
               'version': ('setup.py', version),
               'release': ('setup.py', release),
-              'source_dir': ('setup.py', 'docs/source')}},
+              'source_dir': ('setup.py', 'docs/')}},
       )

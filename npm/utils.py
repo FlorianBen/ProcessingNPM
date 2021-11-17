@@ -104,6 +104,18 @@ def epics_time_ns_str(timestamp, time_ns):
     return time_str
 
 
+def export_video(filename, dset, fps):
+    frame_size = (dset.shape[2], dset.shape[1])
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    out = cv2.VideoWriter(filename, fourcc, fps, frame_size)
+    for im in dset:
+        im = (im/np.max(im))*255
+        im = np.array(im, dtype=np.uint8)
+        im_out = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
+        out.write(im_out)
+    out.release()
+
+
 def extract_images_numpy(filepath, filepath_export=''):
     """
     Save HDF5 images to Numpy array file.

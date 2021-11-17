@@ -9,6 +9,18 @@ import npm.exceptions as ne
 
 
 def mean_image(images, x_axis, mag=0.2344, pixel_size=2 * 5.86e-3, axis=0):
+    """ Calculate the mean image of 
+
+    Args:
+        images ([type]): [description]
+        x_axis ([type]): [description]
+        mag (float, optional): [description]. Defaults to 0.2344.
+        pixel_size ([type], optional): [description]. Defaults to 2*5.86e-3.
+        axis (int, optional): [description]. Defaults to 0.
+
+    Returns:
+        [type]: [description]
+    """
     popt_a = np.zeros((images.shape[0], 4))
     for i in range(0, images.shape[0]):
         popt_a[i] = fit_beam2(images[i], x_axis, gaussian_norm)
@@ -240,6 +252,19 @@ def profile_stats(images):
 
 
 def profile_fwhm(images, x_axis, axis=0):
+    """ Calculate the FWHM of the projection of an image.
+
+    Args:
+        images (ndarray): Input image.
+        x_axis (ndarray): Axis value.
+        axis (int, optional): Projection directions. Defaults to 0.
+
+    Raises:
+        ne.InputError: Invalid input data.
+
+    Returns:
+        ndarray: FWHM parameters
+    """
     # 2D or 3D data
     if len(images.shape) == 3:
         fwhm_info = np.zeros((images.shape[0], 4))
@@ -328,6 +353,20 @@ def profile_fwhm(images, x_axis, axis=0):
 
 
 def fit_beam2(images, x_axis, fun=double_gaussian_norm, axis=0):
+    """ Fit the projection of an image.
+
+    Args:
+        images (ndarray): Input image.
+        x_axis (ndarray): Axis value.
+        fun (function, optional): The funtion to fit. Defaults to double_gaussian_norm.
+        axis (int, optional): Projection directions. Defaults to 0.
+
+    Raises:
+        ne.InputError: Invalid input data.
+
+    Returns:
+        ndarray: Fit parameters
+    """
     # 2D or 3D data
     if len(images.shape) == 3:
         succes = np.zeros(images.shape[0])
@@ -395,11 +434,14 @@ def fit_beam(profile, x_axis, fun=double_gaussian):
 
 
 def fft_filter(fft_image, keep_fraction=0.1):
-    """
-    Cut data in the FFT plane in order to 
-    :param fft_image: 
-    :param keep_fraction: 
-    :return: 
+    """ Apply a low pass filter on a FFT image.
+
+    Args:
+        fft_image (ndarray): Input image
+        keep_fraction (float, optional): Fraction to remove. Defaults to 0.1.
+
+    Returns:
+        ndarray: Cutted FFT image.
     """
     im_fft2 = fft_image.copy()
     r, c = im_fft2.shape
@@ -409,6 +451,16 @@ def fft_filter(fft_image, keep_fraction=0.1):
 
 
 def mean_confidence_interval(data, confidence=0.95, sem=False):
+    """ Calculate the confidence interval of a mean value of data. 
+
+    Args:
+        data (ndarray): Input data.
+        confidence (float, optional): Confidence level. Defaults to 0.95.
+        sem (bool, optional): Use only sem for confidence. Defaults to False.
+
+    Returns:
+        float, float: mean, interval
+    """
     a = 1.0 * np.array(data)
     n = len(a)
     if sem:
