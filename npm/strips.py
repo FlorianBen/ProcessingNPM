@@ -1,20 +1,13 @@
-from multiprocessing.managers import SharedMemoryManager
-from multiprocessing.shared_memory import SharedMemory
 import concurrent.futures
-from multiprocessing import current_process, cpu_count, Process
-from operator import concat
-import threading
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pyfftw
 import uproot3
 from scipy import optimize
-from scipy.interpolate import interp1d
 
 weight_gaus = np.asarray((1, 1, 1, 1, 1, 1, 1, 9, 5, 3, 2, 1.5, 1, 0.9,
                           0.8, 0.8, 0.8, 0.8, 0.9, 1, 1.5, 2, 3, 5, 9, 1, 1, 1, 1, 1, 1, 1))
-pos_gaus = np.asarray((20.54, 13.4, 8.28, 6.66, 4.79, 3.42, 2.35, 1.38, 0.46))
+pos_gaus = np.asarray((20.52, 13.4, 9.28, 6.66, 4.79, 3.42, 2.35, 1.38, 0.46))
 size_gaus = np.asarray((9, 5, 3, 2, 1.5, 1, 0.9, 0.8, 0.8))
 weight_lin = np.asarray((1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                          1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1))
@@ -47,14 +40,18 @@ class FormatPeak(object):
         """
         self.popt = np.zeros((self.peaks.shape[0], 3))
         for i in range(0, self.peaks.shape[0]):
-            profile = self.peaks[i]
 
-            
+            if self.gaussian:
+                average = np.average(self.x_raw_gaus, weights=self.peaks[i, :])
+                variance = np.average(
+                    (self.x_raw_gaus-average)**2, weights=self.peaks[i, :])
+            else:
+                average = np.average(self.x_raw_lin, weights=self.peaks[i, :])
+                variance = np.average(
+                    (self.x_raw_lin-average)**2, weights=self.peaks[i, :])
 
-            # f1 = interp1d(np.pad(self.x_raw_gaus, (1, 1), 'linear_ramp', end_values=(-20, 20)),
-            #              np.pad(profile, (1, 1), 'constant', constant_values=(0, 0)), kind='nearest')
             p0 = [np.max(self.peaks[i, :]),
-                  self.x_raw_lin[np.argmax(self.peaks[i, :])], 3]
+                  self.x_raw_lin[np.argmax(self.peaks[i, :])], np.sqrt(variance)]
 
             if self.gaussian:
                 self.x_fit = self.x_raw_gaus
@@ -104,6 +101,7 @@ class FormatPeak(object):
     def _construct_bin_axis_lin(self):
         """
         Construct the axis for linear strip.
+        Strips are 800 um wide and spaced by 120 um.
         """
         bins = np.zeros(32 * 2)
         bins[::2] += 0.120
@@ -112,12 +110,12 @@ class FormatPeak(object):
         self.bins = bins - np.max(bins) / 2
 
     def _construct_bin_axis_gauss(self):
+        """
+        Construct the axis for gaussian strips.
+        These strips have different size but the span between 2 strips is equal to 120 um
+        """
         binsg = np.zeros(18 * 2)
-        inter = np.diff(pos_gaus) + (size_gaus/2 +
-                                     np.roll(size_gaus/2, -1))[:-1]
-        inter = np.abs(np.concatenate([inter, inter[::-1]]))
-        inter = np.pad(inter, (1, 1), constant_values=0.1)
-        binsg[::2] += inter
+        binsg[::2] += 0.120
         binsg[1::2] = np.concatenate([size_gaus, size_gaus[::-1]])
         binsg = np.insert(np.cumsum(binsg), 0, 0)
         self.binsg = binsg - np.max(binsg) / 2
@@ -139,223 +137,89 @@ class FormatPeak(object):
     def _construct_axis_gauss(self):
         self.x_raw_gaus = np.append(pos_gaus, -np.flip(pos_gaus))
 
-    def normalize(self):
-        self.peaks = self.peaks
 
 
 class FindPeak(object):
-    def __init__(self, signal):
+    def __init__(self, signal, dt=10*10e-6, n_int = 2):
+        """Find peak object will search pulse in the raw signal.
+
+        The search algorithm is based on amplitude and temporal thresholds. 
+        If multiple strips are above a given during n time steps then a pulse is detected.
+        The signal is integrated during the detected window.   
+        Args:
+            signal (ndarray): Input signal
+        """
         self.signal = signal
+        self.dt = dt
+        self.n_int = n_int
+        self.Ts = self.dt * self.n_int
+        self.Fs = 1 / self.Ts
         self.signal_mean = np.mean(self.signal, axis=0)
         self.signal_std = np.std(self.signal, axis=0)
         self.pulses = []
 
-    def threshold(self, level=3, multi=5):
+    def threshold(self, level=3.0, multi_strip=5):
+        """ Set the threshold values and launch the search algorithm.
+
+        Args:
+            level (float, optional): Factor on the amplitude threshold based on one STD. Defaults to 3.0.
+            multi_strip (float, optional): Multiplicity factor on strips. Defaults to 5.0.
+        """
         self.map_thres = (self.signal > (self.signal_mean +
                                          level * self.signal_std)).astype(int)
         self.multiplicity = (
-            np.sum(self.map_thres, axis=1) > multi).astype(int)
+            np.sum(self.map_thres, axis=1) > multi_strip).astype(int)
         self.find_consecutive(self.multiplicity)
         self.construct_pulses()
 
-    def find_consecutive(self, a):
-        iszero = np.concatenate(([0], np.equal(a, 1).view(np.int8), [0]))
+    def find_consecutive(self, multi_time):
+        """ Search for consequitive triggered strip.
+
+        Args:
+            multi_time (int):  Multiplicity strips.
+        """
+        iszero = np.concatenate(
+            ([0], np.equal(multi_time, 1).view(np.int8), [0]))
         absdiff = np.abs(np.diff(iszero))
         self.ranges = np.where(absdiff == 1)[0].reshape(-1, 2)
 
     def construct_pulses(self, consec=5):
+        """ Construct the pulse array.
+
+        Args:
+            consec (int, optional): Number of consecutive triggers. Defaults to 5.
+        """
         self.pulses.clear()
         for x in self.ranges:
             if x[1] - x[0] > consec:
                 data = self.signal[x[0]:x[1], :]
-                pulse = np.nansum(np.where(data>=0, data, np.nan), axis=0)
-                # pulse = np.sum(self.signal[x[0]:x[1], :], axis=0)
-                # print(pulse)
+                pulse = np.nansum(np.where(data >= 0, data, np.nan), axis=0)
                 self.pulses.append(pulse)
         self.pulses = np.asarray(self.pulses)
 
 
-class ProcFaster(object):
-    def __init__(self, filename, card=1, dt=20e-6, n_int=2):
-        self.filename = filename
-        self.dt = dt
-        self.n_int = n_int
-        self.Ts = self.dt * self.n_int
-        self.Fs = 1 / self.Ts
-        file = uproot3.open(filename)
-        self.tree = file['card' + str(card) + '_tree']
-        self.raw_charge = self.tree['charge'].array()
-        self.time = self.tree['time'].array()
-        self.N = self.time.size
-        self.fft_m = np.zeros(np.shape(self.raw_charge), dtype=complex)
-        self.fft_cut = np.zeros(np.shape(self.raw_charge), dtype=complex)
-        self.sig_filter = np.zeros(np.shape(self.raw_charge))
-
-    def remove_pedestal(self):
-        strip_mean = np.mean(self.raw_charge, axis=0)
-        self.sub_signal = self.raw_charge[:] - strip_mean
-
-    def normalize_strips(self):
-        self.sig_filter = self.sig_filter/weight_gaus
-
-    def run_fft(self):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
-            res = {executor.submit(
-                self.__perform_fft, self.sub_signal[:, x], x): x for x in range(32)}
-            for future in concurrent.futures.as_completed(res):
-                url = res[future]
-        # processes = [threading.Thread(target=self.__perform_fft, args=(
-        #     self.sub_signal[:, x], x)) for x in range(32)]
-        # for p in processes:
-        #     p.start()
-        # for p in processes:
-        #     p.join()
-
-    def run_ifft(self):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
-            res = {executor.submit(
-                self.__perform_ifft, self.fft_cut[:, x], x): x for x in range(32)}
-            for future in concurrent.futures.as_completed(res):
-                url = res[future]
-        # processes = [threading.Thread(target=self.__perform_ifft, args=(
-        #     self.fft_cut[:, x], x)) for x in range(32)]
-        # for p in processes:
-        #     p.start()
-        # for p in processes:
-        #     p.join()
-
-    def __perform_fft(self, signal, x):
-        N = np.size(signal)
-        a = pyfftw.empty_aligned(N, dtype='complex128', n=16)
-        a[:] = signal
-        self.fft_m[:, x] = pyfftw.interfaces.numpy_fft.fft(a)
-
-    def __perform_ifft(self, signal, x):
-        N = np.size(signal)
-        a = pyfftw.empty_aligned(N, dtype='complex128', n=16)
-        a[:] = signal
-        self.sig_filter[:, x] = np.real(pyfftw.interfaces.numpy_fft.ifft(a))
-
-    def cut_freq(self, **kwargs):
-        type_filter = kwargs.get('filter', 'LowPass')
-        fcut = kwargs.get('fcut', self.Fs / 4)
-        fband = kwargs.get('fband', self.Fs / 10)
-        if type_filter == 'LowPass':
-            self.low_filter(fcut)
-        elif type_filter == 'HighPass':
-            self.high_filter()
-        else:
-            pass
-
-    def low_filter(self, fcut):
-        Fstep = self.Fs / self.N
-        Ncut = int(fcut / Fstep)
-        self.fft_cut = np.array(self.fft_m)
-        self.fft_cut[Ncut:-1 - Ncut, :] = 0
-        pass
-
-    def high_filter(self):
-        pass
-
-# Quelque modifications pour fonctionner avec le convertisseur de Francesca.
-
-
-class ProcFaster2(object):
-    def __init__(self, filename, dt=10e-6, n_int=2, card=1):
-        self.filename = filename
-        self.dt = dt
-        self.n_int = n_int
-        self.Ts = self.dt * self.n_int
-        self.Fs = 1 / self.Ts
-        file = uproot3.open(filename)
-        self.tree = file['DataTree']
-        self.card = self.tree['card'].array()
-        self.raw_charge = self.tree['Q'].array()
-        self.time = self.tree['time'].array()
-        self.raw_charge = self.raw_charge[self.card == card]
-        self.time = self.time[self.card == card]
-        self.N = self.time.size
-        self.fft_m = np.zeros(np.shape(self.raw_charge), dtype=complex)
-        self.fft_cut = np.zeros(np.shape(self.raw_charge), dtype=complex)
-        self.sig_filter = np.zeros(np.shape(self.raw_charge))
-
-    def remove_pedestal(self):
-        strip_mean = np.mean(self.raw_charge, axis=0)
-        self.sub_signal = self.raw_charge[:] - strip_mean
-
-    def normalize_strips(self):
-        self.sig_filter = self.sig_filter/weight_gaus
-
-    def run_fft(self):
-        processes = [threading.Thread(target=self.__perform_fft, args=(
-            self.sub_signal[:, x], x)) for x in range(32)]
-        for p in processes:
-            p.start()
-        for p in processes:
-            p.join()
-
-    def run_ifft(self):
-        processes = [threading.Thread(target=self.__perform_ifft, args=(
-            self.fft_cut[:, x], x)) for x in range(32)]
-        for p in processes:
-            p.start()
-        for p in processes:
-            p.join()
-
-    def __perform_fft(self, signal, x):
-        N = np.size(signal)
-        a = pyfftw.empty_aligned(N, dtype='complex128', n=16)
-        a[:] = signal
-        self.fft_m[:, x] = pyfftw.interfaces.numpy_fft.fft(a)
-
-    def __perform_ifft(self, signal, x):
-        N = np.size(signal)
-        a = pyfftw.empty_aligned(N, dtype='complex128', n=16)
-        a[:] = signal
-        self.sig_filter[:, x] = np.real(pyfftw.interfaces.numpy_fft.ifft(a))
-
-    def cut_freq(self, **kwargs):
-        type_filter = kwargs.get('filter', 'LowPass')
-        fcut = kwargs.get('fcut', self.Fs / 4)
-        fband = kwargs.get('fband', self.Fs / 10)
-        if type_filter == 'LowPass':
-            self.low_filter(fcut)
-        elif type_filter == 'HighPass':
-            self.high_filter()
-        else:
-            pass
-
-    def low_filter(self, fcut):
-        Fstep = self.Fs / self.N
-        Ncut = int(fcut / Fstep)
-        self.fft_cut = np.array(self.fft_m)
-        self.fft_cut[Ncut:-1 - Ncut, :] = 0
-        pass
-
-    def high_filter(self):
-        pass
-
-
 class ProcFaster3(object):
-    def __init__(self, filename, dt=10e-6, n_int=2, card=1):
+    def __init__(self, filename, card=1):
         self.filename = filename
-        self.dt = dt
-        self.n_int = n_int
-        self.Ts = self.dt * self.n_int
-        self.Fs = 1 / self.Ts
         file = uproot3.open(filename)
         tree = file['card' + str(card) + '_tree']
         self.raw_charge = tree['charge'].array()
         self.time = tree['time'].array()
         self.N = self.time.size
         self.fft_m = np.zeros(np.shape(self.raw_charge), dtype=complex)
-        #self.sig_filter = np.zeros(np.shape(self.raw_charge))
 
     def remove_pedestal(self):
+        """ Remove background level from the signal.
+        """
         strip_mean = np.mean(self.raw_charge, axis=0)
         self.raw_charge = self.raw_charge[:] - strip_mean
 
+    def scale_std(self):
+        pass
+
     def normalize_strips(self):
+        """ Normalize the gaussian strips.
+        """
         self.raw_charge = self.raw_charge/weight_gaus
 
     def run_fft(self):
