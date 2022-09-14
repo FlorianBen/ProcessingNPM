@@ -10,6 +10,7 @@
 ## Summary
 
 This repository contains Python scripts for the processing of NPM data. It consists of a Python library and several use cases.
+As different type of NPM are used, the processing of each type of NPM may be completely different.
 
 ## Directories
 
