@@ -227,6 +227,15 @@ def double_gaussian_norm(x, offset, amplitude1, mean1, stddev1, amplitude2, mean
 
 
 def gaussian_helper(signal, x_axis):
+    """ Function that help to compute the initial parameters for the gaussian fit.
+
+    Args:
+        signal (np.ndarray): Signal to fit
+        x_axis (np.ndarray): Axis for the fit
+
+    Returns:
+        double: Return information about signal.
+    """
     min = np.min(signal)
     max = np.max(signal)
     max_pos = x_axis[np.argmax(signal)]
@@ -236,6 +245,17 @@ def gaussian_helper(signal, x_axis):
 
 
 def profile_stats(images):
+    """ Compute statistics on the profile signal.
+
+    Args:
+        images (np.ndarray): Input image matrix.
+
+    Raises:
+        ne.InputError: Wrong dim exception.
+
+    Returns:
+        np.ndarray: Output statistics vector.
+    """
     # 2D or 3D data
     if len(images.shape) == 3:
         stats = np.zeros((images.shape[0], 4))
@@ -454,7 +474,7 @@ def mean_confidence_interval(data, confidence=0.95, sem=False):
     """ Calculate the confidence interval of a mean value of data. 
 
     Args:
-        data (ndarray): Input data.
+        data (np.ndarray): Input data.
         confidence (float, optional): Confidence level. Defaults to 0.95.
         sem (bool, optional): Use only sem for confidence. Defaults to False.
 
@@ -472,6 +492,19 @@ def mean_confidence_interval(data, confidence=0.95, sem=False):
 
 
 def stats_fit(images, x_axis, axis=0):
+    """ Compute statistics on a serie of images.
+
+    Args:
+        images (np.ndarray): Input images.
+        x_axis (np.ndarray): Axis of the images
+        axis (int, optional): Axis direction. Defaults to 0.
+
+    Raises:
+        ne.InputError: _description_
+
+    Returns:
+        np.ndarray: Stats results vector
+    """
     if len(images.shape) == 3:
         stats = np.zeros((images.shape[0], 2))
         for i in range(0, images.shape[0]):

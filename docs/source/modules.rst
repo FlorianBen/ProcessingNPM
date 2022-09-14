@@ -4,4 +4,4 @@ npm
 .. toctree::
    :maxdepth: 4
 
-   npm
+   ./npm.rst

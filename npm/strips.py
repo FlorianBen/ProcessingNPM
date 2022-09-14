@@ -65,6 +65,52 @@ class FormatPeak(object):
                 print('Fit failed !')
                 pass
 
+    def fwhm_beam(self):
+        """ 
+            Compute the fwhm on each bunch.
+        """
+        self.fwhm_info = np.zeros((self.peaks.shape[0], 4))
+        for i in range(0, self.peaks.shape[0]):
+            profile = self.peaks[i]
+            y_min = np.min(profile)
+            y_max = np.max(profile)
+            i_max = np.argmax(profile)
+            dr = y_max - y_min
+            x_max = self.x_raw_lin[i_max]
+
+            fwhm_val = dr / 2 + y_min
+
+            a_conv = True
+            b_conv = True
+
+            a_i = 1
+            b_i = -1
+
+            while a_conv or b_conv:
+                a = profile[i_max + a_i]
+                b = profile[i_max + b_i]
+
+                if a - y_min > dr / 2:
+                    a_i = a_i + 1
+                else:
+                    a_conv = False
+
+                if b - y_min > dr / 2:
+                    b_i = b_i - 1
+                else:
+                    b_conv = False
+            if i_max + b_i < 0:
+                low = 0
+            else:
+                low = i_max + b_i
+            if i_max + a_i > (self.x_raw_lin.size - 1):
+                up = (self.x_raw_lin.size() - 1)
+            else:
+                up = i_max + a_i
+            fwhm = self.x_raw_lin[low:i_max + a_i]
+            self.fwhm_info[i] = np.asarray(
+                [fwhm[0], fwhm[-1], fwhm_val, x_max])
+
     def double_gaussian_norm(self, x, amplitude1, mean1, stddev1, amplitude2, mean2, stddev2):
         """
         Fitting function double gaussian.
@@ -138,9 +184,8 @@ class FormatPeak(object):
         self.x_raw_gaus = np.append(pos_gaus, -np.flip(pos_gaus))
 
 
-
 class FindPeak(object):
-    def __init__(self, signal, dt=10*10e-6, n_int = 2):
+    def __init__(self, signal, dt=10*10e-6, n_int=2):
         """Find peak object will search pulse in the raw signal.
 
         The search algorithm is based on amplitude and temporal thresholds. 
@@ -172,14 +217,14 @@ class FindPeak(object):
         self.find_consecutive(self.multiplicity)
         self.construct_pulses()
 
-    def find_consecutive(self, multi_time):
+    def find_consecutive(self, multi_strip):
         """ Search for consequitive triggered strip.
 
         Args:
             multi_time (int):  Multiplicity strips.
         """
         iszero = np.concatenate(
-            ([0], np.equal(multi_time, 1).view(np.int8), [0]))
+            ([0], np.equal(multi_strip, 1).view(np.int8), [0]))
         absdiff = np.abs(np.diff(iszero))
         self.ranges = np.where(absdiff == 1)[0].reshape(-1, 2)
 
@@ -199,7 +244,7 @@ class FindPeak(object):
 
 
 class ProcFaster3(object):
-    def __init__(self, filename, card=1):
+    def __init__(self, filename, card=1, dt=10*10e-6, n_int=2):
         self.filename = filename
         file = uproot3.open(filename)
         tree = file['card' + str(card) + '_tree']
@@ -207,6 +252,10 @@ class ProcFaster3(object):
         self.time = tree['time'].array()
         self.N = self.time.size
         self.fft_m = np.zeros(np.shape(self.raw_charge), dtype=complex)
+        self.dt = dt
+        self.n_int = n_int
+        self.Ts = self.dt * self.n_int
+        self.Fs = 1 / self.Ts
 
     def remove_pedestal(self):
         """ Remove background level from the signal.
@@ -215,14 +264,21 @@ class ProcFaster3(object):
         self.raw_charge = self.raw_charge[:] - strip_mean
 
     def scale_std(self):
+        """
+        Scale each strips signal with its STD. NOT IMPLEMENTED
+        """
         pass
 
     def normalize_strips(self):
-        """ Normalize the gaussian strips.
+        """ 
+        Normalize the gaussian strips.
         """
         self.raw_charge = self.raw_charge/weight_gaus
 
     def run_fft(self):
+        """
+        Compute the FFT for each strips signal. 
+        """
         with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
             res = {executor.submit(
                 self.__perform_fft, self.raw_charge[:, x], x): x for x in range(32)}
@@ -230,6 +286,9 @@ class ProcFaster3(object):
                 url = res[future]
 
     def run_ifft(self):
+        """        
+        Compute the inverse FFT for each FFT signal. 
+        """
         with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
             res = {executor.submit(self.__perform_ifft,
                                    self.fft_m[:, x], x): x for x in range(32)}
@@ -260,9 +319,13 @@ class ProcFaster3(object):
             pass
 
     def low_filter(self, fcut):
+        """ 
+        Cut high frequencies in the FFT signal.
+        Args:
+            fcut (float): Frequency cut
+        """
         Fstep = self.Fs / self.N
         Ncut = int(fcut / Fstep)
-        # self.fft_cut = np.array(self.fft_m)
         self.fft_m[Ncut:-1 - Ncut, :] = 0
         pass
 
